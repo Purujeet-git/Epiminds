@@ -6,8 +6,14 @@ import * as THREE from "three";
 import { buildParticleGeometry } from "@/hooks/useParticleGeometry";
 import { getHeroAnimation } from "@/lib/heroAnimation";
 import { useFrame } from "@react-three/fiber";
+import { calculateParticlePosition,calculateSettle } from "@/lib/particleAnimation";
 type Props = {
     progress: number;
+};
+
+const PARTICLE_SETTINGS = {
+    amplitude: 0.006,
+    speed: 0.55,
 };
 
 export default function ParticleCharacter({ progress }: Props) {
@@ -48,31 +54,69 @@ export default function ParticleCharacter({ progress }: Props) {
         const time = clock.getElapsedTime();
 
         const positions = animatedPositions.current;
-        const original = animatedPositions.current;
+        const original = originalPositions.current;
+
+        let minY = Infinity;
+        let maxY = -Infinity;
+
+        for (let i=1;i<original.length; i+= 3){
+            minY = Math.min(minY,original[i]);
+            maxY = Math.max(maxY,original[i]);
+        }
 
         const random = 
             geometry.attributes.aRandom.array as Float32Array;
 
+        const normals = geometry.attributes.normal.array as Float32Array;
+
         const positionAttributes = 
             geometry.attributes.position as THREE.BufferAttribute;
 
-        const amplitude = 0.05;
+        const originalVector = new THREE.Vector3();
+        const normalVector = new THREE.Vector3();
 
         for(let i = 0 ; i < positions.length; i += 3) {
-            const particleIndex = i / 3;
+            originalVector.set(
+                original[i],
+                original[i + 1],
+                original[i + 2]
+            );
 
-            const r = random[particleIndex];
+            normalVector.set(
+                normals[i],
+                normals[i + 1],
+                normals[i + 2]
+            );
 
-            positions[i] = 
-                original[i] +
-                Math.sin(time * 1 + r * 20) * amplitude;
+            const r = random[i / 3];
 
-            positions[i + 1] = 
-                original[i + 1] + 
-                Math.cos(time * 1 + r * 20) * amplitude;
+            const y = original[i + 1];
 
-            positions[i+2] = 
-                original[i+2];
+            const normalizedY = 
+                (y - minY) / (maxY - minY);
+
+            const settle = calculateSettle(
+                progress,
+                1 - normalizedY
+            );
+
+            const amplitude = 
+                PARTICLE_SETTINGS.amplitude * 
+                (1 - settle);
+
+            const position = calculateParticlePosition({
+                original: originalVector,
+                normal:normalVector,
+                time,
+                random: r,
+                amplitude,
+                speed: PARTICLE_SETTINGS.speed,
+                settle,
+            });
+
+            positions[i] = position.x;
+            positions[i+1] = position.y;
+            positions[i+2] = position.z;
         }
 
         positionAttributes.array = positions;
