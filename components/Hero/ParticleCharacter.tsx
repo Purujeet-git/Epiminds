@@ -3,10 +3,16 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useGLTF } from "@react-three/drei";
 import * as THREE from "three";
+import { useFrame } from "@react-three/fiber";
+
 import { buildParticleGeometry } from "@/hooks/useParticleGeometry";
 import { getHeroAnimation } from "@/lib/heroAnimation";
-import { useFrame } from "@react-three/fiber";
-import { calculateParticlePosition,calculateSettle } from "@/lib/particleAnimation";
+import {
+    calculateParticlePosition,
+    calculateSettle,
+} from "@/lib/particleAnimation";
+import { calculateWaveInfluence } from "@/lib/particleWave";
+
 type Props = {
     progress: number;
 };
@@ -18,12 +24,13 @@ const PARTICLE_SETTINGS = {
 
 export default function ParticleCharacter({ progress }: Props) {
     const { scene } = useGLTF("/models/character.glb");
+
     const pointsRef = useRef<THREE.Points>(null);
+
     const originalPositions = useRef<Float32Array | null>(null);
     const animatedPositions = useRef<Float32Array | null>(null);
+
     const geometry = useMemo(() => {
-
-
         return buildParticleGeometry(scene);
     }, [scene]);
 
@@ -33,17 +40,16 @@ export default function ParticleCharacter({ progress }: Props) {
         );
 
         originalPositions.current = original;
-
         animatedPositions.current = new Float32Array(original);
-
     }, [geometry]);
-
 
     const animation = getHeroAnimation(progress);
 
-    useFrame(({clock}) => {
+    const breatheStrength = animation.breathe;
+    const settleProgress = animation.settle;
 
-        if(
+    useFrame(({ clock }) => {
+        if (
             !pointsRef.current ||
             !originalPositions.current ||
             !animatedPositions.current
@@ -56,26 +62,29 @@ export default function ParticleCharacter({ progress }: Props) {
         const positions = animatedPositions.current;
         const original = originalPositions.current;
 
-        let minY = Infinity;
-        let maxY = -Infinity;
-
-        for (let i=1;i<original.length; i+= 3){
-            minY = Math.min(minY,original[i]);
-            maxY = Math.max(maxY,original[i]);
-        }
-
-        const random = 
+        const random =
             geometry.attributes.aRandom.array as Float32Array;
 
-        const normals = geometry.attributes.normal.array as Float32Array;
+        const normals =
+            geometry.attributes.normal.array as Float32Array;
 
-        const positionAttributes = 
+        const positionAttribute =
             geometry.attributes.position as THREE.BufferAttribute;
 
         const originalVector = new THREE.Vector3();
         const normalVector = new THREE.Vector3();
 
-        for(let i = 0 ; i < positions.length; i += 3) {
+        // Wave settings
+        const waveOrigin = new THREE.Vector3(
+            0,
+            0.15,
+            0.02
+        );
+
+        const waveRadius = 2.2;
+
+        for (let i = 0; i < positions.length; i += 3) {
+
             originalVector.set(
                 original[i],
                 original[i + 1],
@@ -90,40 +99,40 @@ export default function ParticleCharacter({ progress }: Props) {
 
             const r = random[i / 3];
 
-            const y = original[i + 1];
-
-            const normalizedY = 
-                (y - minY) / (maxY - minY);
-
-            const settle = calculateSettle(
-                progress,
-                1 - normalizedY
-            );
-
-            const amplitude = 
-                PARTICLE_SETTINGS.amplitude * 
-                (1 - settle);
-
-            const position = calculateParticlePosition({
-                original: originalVector,
-                normal:normalVector,
-                time,
-                random: r,
-                amplitude,
-                speed: PARTICLE_SETTINGS.speed,
-                settle,
+            const wave = calculateWaveInfluence({
+                position: originalVector,
+                origin: waveOrigin,
+                radius: waveRadius,
+                progress: settleProgress,
             });
 
-            positions[i] = position.x;
-            positions[i+1] = position.y;
-            positions[i+2] = position.z;
+            const settle = calculateSettle(
+                wave.influence
+            );
+
+            const amplitude =
+                PARTICLE_SETTINGS.amplitude *
+                breatheStrength *
+                (1 - settle);
+
+            const particlePosition =
+                calculateParticlePosition({
+                    original: originalVector,
+                    normal: normalVector,
+                    time,
+                    random: r,
+                    amplitude,
+                    speed: PARTICLE_SETTINGS.speed,
+                    settle,
+                });
+
+            positions[i] = particlePosition.x;
+            positions[i + 1] = particlePosition.y;
+            positions[i + 2] = particlePosition.z;
         }
 
-        positionAttributes.array = positions;
-
-        positionAttributes.needsUpdate = true;
+        positionAttribute.needsUpdate = true;
     });
-
 
     return (
         <points

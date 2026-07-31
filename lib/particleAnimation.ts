@@ -31,22 +31,16 @@ export function calculateBreathing({
         ) * amplitude
     );
 }
-
 export function calculateSettle(
-    progress: number,
-    normalizedProgress: number
+    influence: number
 ): number {
-    const particleProgress = THREE.MathUtils.clamp(
-        (progress - normalizedProgress * 0.4) / 0.6,
-        0,
-        1
-    );
 
     return THREE.MathUtils.smoothstep(
-        particleProgress,
+        influence,
         0,
         1
     );
+
 }
 
 export function calculateParticlePosition({
